@@ -1,0 +1,60 @@
+name: Close Check
+
+on:
+  schedule:
+    - cron: "23,53 20,21 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "normal = real check, check_data = test the data key, test_push = test the phone alert"
+        type: choice
+        default: normal
+        options: [normal, check_data, test_push]
+  push:
+    branches: [main]
+    paths: ["site/**"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: close-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run the check
+        id: check
+        env:
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          PAGE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'normal' }}
+        run: node scripts/check.js
+      - name: Save the new reading
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git config user.name "close-check"
+          git config user.email "close-check@users.noreply.github.com"
+          git add site/data.json
+          git commit -m "Record close for $(date -u +%F)"
+          git push
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - name: Publish the page
+        id: deploy
+        if: steps.check.outputs.changed == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: actions/deploy-pages@v4
