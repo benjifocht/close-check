@@ -3,6 +3,8 @@
 // MODE=normal      record the day's close if it is new, notify when something needs a look
 // MODE=check_data  fetch and print the latest rows only (use this to test your data key)
 // MODE=test_push   send a test notification only
+// MODE=morning     scheduled intraday snapshot (once a day); MODE=live is the same, run by hand any time the market is open
+//                  Live snapshots only show "today so far" on the page. They never change the verdict or send alerts.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,6 +45,16 @@ export async function run({ now = new Date(), env = process.env, fetchImpl = fet
     return { changed: false, alerted: ok, reason: "test" };
   }
 
+  const isLive = mode === "live" || mode === "morning";
+  if (isLive) {
+    // Cheap checks first so a skipped run costs no data credit.
+    const t = etNow(now);
+    if (t.minutes < 9 * 60 + 35 || t.minutes >= 16 * 60 + 5) return skip("the market is not open");
+    const rec = readJsonOrNull(dataPath);
+    if (!rec || rec.ticker !== cfg.ticker) return skip("there is no recorded reading for " + cfg.ticker + " yet");
+    if (mode === "morning" && rec.live && rec.live.date === t.date) return skip("today's morning snapshot is already recorded");
+  }
+
   const rows = await fetchDaily({ ticker: cfg.ticker, env, fetchImpl });
   if (rows.length < 23) throw new Error("Only " + rows.length + " sessions came back for " + cfg.ticker + ". Check the ticker in config.json.");
   const last = rows[rows.length - 1];
@@ -56,6 +68,14 @@ export async function run({ now = new Date(), env = process.env, fetchImpl = fet
   }
 
   const et = etNow(now);
+  if (isLive) {
+    if (last.date !== et.date) return skip("no session for today has been posted (holiday?)");
+    const rec = readJsonOrNull(dataPath);
+    const live = { date: last.date, price: last.close, volume: last.volume, prevClose: rows[rows.length - 2].close, fetchedAt: now.toISOString() };
+    fs.writeFileSync(dataPath, JSON.stringify({ ...rec, live }, null, 1) + "\n");
+    log(cfg.ticker + " live " + fmtPrice(live.price) + " vs previous close " + fmtPrice(live.prevClose) + ". Snapshot saved, no alert.");
+    return { changed: true, alerted: false, reason: "live" };
+  }
   if (et.minutes < 16 * 60 + 5) return skip("the market has not closed yet");
   if (last.date !== et.date) return skip("no session for today has been posted yet");
   const prevData = readJsonOrNull(dataPath);
