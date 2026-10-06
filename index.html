@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Close Check</title>
+<meta name="theme-color" content="#0B5C68">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Close Check">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="wrap">
+  <header class="top">
+    <div>
+      <p class="eyebrow">Close Check</p>
+      <div class="idrow">
+        <h1 id="tk">&mdash;</h1>
+        <span id="px" class="px mono"></span>
+        <span id="chg" class="chg mono"></span>
+      </div>
+    </div>
+    <div class="freshbox"><p id="fresh" class="fresh"></p><button id="refresh" type="button" class="ghost">Refresh</button></div>
+  </header>
+
+  <p id="notice" class="notice" hidden></p>
+
+  <section id="live" class="live" hidden aria-label="Today so far">
+    <p class="lbl">Today so far</p>
+    <p id="live-main" class="live-main"></p>
+    <p id="live-sub" class="sub"></p>
+    <p class="sub"><a id="live-run" class="lnk" href="#" target="_blank" rel="noopener" hidden>Get a fresher price</a></p>
+  </section>
+
+  <section id="verdict" class="verdict" data-state="empty" aria-live="polite">
+    <span id="vpill" class="pill">No reading yet</span>
+    <h2 id="vhead">Waiting for the first after-close check</h2>
+    <p id="vwhy">Set a ticker and your levels below. The check runs on weekdays after the close and fills this page in.</p>
+  </section>
+
+  <section class="signals" aria-label="The three checks">
+    <article class="sig">
+      <p class="lbl">1 &middot; Daily close vs level</p>
+      <p id="s1v" class="val">&mdash;</p>
+      <span id="s1c" class="chip">No data</span>
+      <p id="s1a" class="sub">The close counts, not the intraday touch.</p>
+      <p id="s1b" class="sub"></p>
+    </article>
+    <article class="sig">
+      <p class="lbl">2 &middot; Volume vs average</p>
+      <p id="s2v" class="val">&mdash;</p>
+      <span id="s2c" class="chip">No data</span>
+      <p id="s2a" class="sub">Compared with the 20-day average.</p>
+    </article>
+    <article class="sig">
+      <p class="lbl">3 &middot; Trend, 50-day average</p>
+      <p id="s3v" class="val">&mdash;</p>
+      <span id="s3c" class="chip">No data</span>
+      <p id="s3a" class="sub">Is the close on the right side of the trend?</p>
+    </article>
+  </section>
+
+  <section class="panel" aria-label="Recent sessions">
+    <h3>Recent sessions</h3>
+    <div id="chartwrap" class="chartwrap"><div id="chart"></div><div id="tip" class="tip" hidden></div></div>
+    <ul id="legend" class="legend" hidden></ul>
+    <details>
+      <summary>Show the numbers</summary>
+      <div class="tablewrap"><table id="tbl"><thead><tr><th>Date</th><th>Close</th><th>vs level</th><th>Volume</th><th>vs avg</th></tr></thead><tbody></tbody></table></div>
+    </details>
+  </section>
+
+  <section class="panel" aria-label="What you are watching">
+    <h3>What you are watching</h3>
+    <form id="cfgForm" novalidate>
+      <div class="field tk"><label for="f-ticker">Ticker</label><input id="f-ticker" type="text" maxlength="6" placeholder="ETSY" autocomplete="off" spellcheck="false"></div>
+
+      <fieldset class="risk">
+        <legend>Risk level</legend>
+        <div class="seg" role="radiogroup" aria-label="Risk level">
+          <label class="opt"><input type="radio" name="risk" id="r-cautious" value="cautious"><span>Cautious</span></label>
+          <label class="opt"><input type="radio" name="risk" id="r-balanced" value="balanced"><span>Balanced</span></label>
+          <label class="opt"><input type="radio" name="risk" id="r-aggressive" value="aggressive"><span>Aggressive</span></label>
+        </div>
+        <p id="risk-desc">Pick one to fill the three fields from recent closes. You can still change any number.</p>
+        <p id="risk-rules"></p>
+        <p id="sugg-src"></p>
+      </fieldset>
+
+      <div class="fields">
+        <div class="field">
+          <label for="f-key">Level to watch</label>
+          <p class="help">A price the stock has turned back from before. A close above it is the first sign of a breakout.</p>
+          <input id="f-key" type="number" inputmode="decimal" step="0.01" min="0" placeholder="77.70" aria-describedby="n-key">
+          <p id="n-key" class="note"></p>
+          <p class="sugg-h">Recent highs and averages</p>
+          <div id="c-key" class="chips"></div>
+        </div>
+        <div class="field">
+          <label for="f-sup">Support</label>
+          <p class="help">A price where the stock has stopped falling before. A close under it is the first sign of a breakdown.</p>
+          <input id="f-sup" type="number" inputmode="decimal" step="0.01" min="0" placeholder="70.00" aria-describedby="n-sup">
+          <p id="n-sup" class="note"></p>
+          <p class="sugg-h">Recent lows and averages</p>
+          <div id="c-sup" class="chips"></div>
+        </div>
+        <div class="field">
+          <label for="f-mult">Heavy volume at</label>
+          <p class="help">How much busier than the 20-day average a session must be to count as heavy. At 1.5&times; that is half again the usual shares.</p>
+          <input id="f-mult" type="number" inputmode="decimal" step="0.05" min="1" max="5" placeholder="1.5" aria-describedby="n-mult">
+          <p id="n-mult" class="note"></p>
+          <p class="sugg-h">How often it happens</p>
+          <div id="c-mult" class="chips"></div>
+        </div>
+      </div>
+      <div class="actions"><button id="f-save" type="submit">Copy config.json</button><a id="f-edit" class="lnk" href="#" target="_blank" rel="noopener" hidden>Open config.json on GitHub</a><p id="f-msg" role="status"></p></div>
+      <textarea id="f-ta" class="ta" readonly rows="6" hidden aria-label="config.json text"></textarea>
+      <p class="help">Nothing changes until you paste this into config.json on GitHub and commit it. The next after-close check then uses it.</p>
+    </form>
+  </section>
+
+  <section class="panel how" aria-label="How alerts work">
+    <h3>When you get a notification</h3>
+    <p>The check runs on weekdays around 4:20 PM ET, after the close. You are notified when the verdict changes, when a close crosses your level or support, or when the close lands within 2% of either line. On quiet days nothing is sent.</p>
+    <p>A bullish confirmation needs all three: a close above your level, heavy volume, and a close above the 50-day average. A bearish one is the mirror image below support.</p>
+  </section>
+
+  <p class="foot">A checklist for your own review, not advice to buy or sell. Prices come from a market-data service and can lag.</p>
+</main>
+
+<script type="module" src="page.js"></script>
+</body>
+</html>
