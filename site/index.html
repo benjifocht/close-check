@@ -28,10 +28,17 @@
         <span id="chg" class="chg mono"></span>
       </div>
     </div>
-    <p id="fresh" class="fresh"></p>
+    <div class="freshbox"><p id="fresh" class="fresh"></p><button id="refresh" type="button" class="ghost">Refresh</button></div>
   </header>
 
   <p id="notice" class="notice" hidden></p>
+
+  <section id="live" class="live" hidden aria-label="Today so far">
+    <p class="lbl">Today so far</p>
+    <p id="live-main" class="live-main"></p>
+    <p id="live-sub" class="sub"></p>
+    <p class="sub"><a id="live-run" class="lnk" href="#" target="_blank" rel="noopener" hidden>Get a fresher price</a></p>
+  </section>
 
   <section id="verdict" class="verdict" data-state="empty" aria-live="polite">
     <span id="vpill" class="pill">No reading yet</span>

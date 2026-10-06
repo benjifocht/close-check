@@ -1,7 +1,7 @@
 import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, preset, rollingRatios, countHeavy, levelChips, supportChips } from "./logic.js";
 
   var $ = function (id) { return document.getElementById(id); };
-  var cfg = null, rd = null, dirty = false, lastW = 0, loadErr = false;
+  var saved = null, cfg = null, rd = null, dirty = false, lastW = 0, loadErr = false;
   var why = { key: "", sup: "", mult: "" };
 
   function setChip(el, cls, text) { el.className = "chip" + (cls ? " " + cls : ""); el.textContent = text; }
@@ -19,11 +19,50 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
 
   function showNotice(t) { var n = $("notice"); if (t) { n.textContent = t; n.hidden = false; } else { n.hidden = true; } }
 
+  function etParts(d) {
+    var p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "short", hourCycle: "h23" }).formatToParts(d || new Date());
+    var g = function (t) { return p.filter(function (x) { return x.type === t; })[0].value; };
+    return { date: g("year") + "-" + g("month") + "-" + g("day"), minutes: parseInt(g("hour"), 10) * 60 + parseInt(g("minute"), 10), weekend: g("weekday") === "Sat" || g("weekday") === "Sun" };
+  }
+  function repoActionsUrl() {
+    var m = location.hostname.match(/^([^.]+)\.github\.io$/), seg = location.pathname.split("/").filter(Boolean)[0];
+    return m && seg ? "https://github.com/" + m[1] + "/" + seg + "/actions/workflows/check.yml" : null;
+  }
+  // Live preview: the verdict, chart and numbers follow what is typed in the form, before anything is saved.
+  function applyDraft() {
+    if (!saved) { cfg = null; return; }
+    var key = parseFloat($("f-key").value), sup = parseFloat($("f-sup").value), mult = parseFloat($("f-mult").value);
+    var ok = key > 0 && sup > 0 && key > sup && mult >= 1 && mult <= 5;
+    var same = ok && key === saved.keyLevel && sup === saved.supportLevel && mult === (saved.volumeMultiple || 1.5);
+    cfg = ok && !same ? { ticker: saved.ticker, keyLevel: key, supportLevel: sup, volumeMultiple: mult } : saved;
+  }
+  function sync() { applyDraft(); render(); }
+  function renderLive() {
+    var box = $("live"), et = etParts(), open = !et.weekend && et.minutes >= 9 * 60 + 30 && et.minutes < 16 * 60 + 5;
+    var lv = rd && rd.live && rd.live.date === et.date && cfg && rd.ticker === cfg.ticker ? rd.live : null;
+    var link = $("live-run"), url = repoActionsUrl();
+    if (!lv && !open) { box.hidden = true; return; }
+    box.hidden = false;
+    if (url) { link.href = url; link.hidden = false; } else { link.hidden = true; }
+    if (!lv) {
+      $("live-main").textContent = "No snapshot yet today";
+      $("live-sub").textContent = "A snapshot is taken around 9:50 AM ET. The verdict above always uses the last full close.";
+      return;
+    }
+    var chg = (lv.price / lv.prevClose - 1) * 100;
+    $("live-main").textContent = "$" + fmtPrice(lv.price) + "  " + (chg >= 0 ? "▲ " : "▼ ") + pctStr(chg) + " vs yesterday";
+    var where = cfg.keyLevel > 0 && lv.price > cfg.keyLevel ? "above your level" : lv.price < cfg.supportLevel ? "below your support" : "between your lines";
+    var when = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(lv.fetchedAt));
+    $("live-sub").textContent = "Price right now is " + where + ", but only the close counts. Volume so far " + fmtVol(lv.volume) + " (day not finished). As of " + when + " ET. Press Refresh to reload the newest snapshot.";
+  }
+
   function render() {
     renderHelp();
+    renderLive();
     $("tk").textContent = (cfg && cfg.ticker) || (rd && rd.ticker) || "—";
     var v = $("verdict");
-    if (loadErr && !rd) { showNotice("Could not load the latest reading. Check your connection and reopen the page."); }
+    if (saved && cfg !== saved) { showNotice("Previewing these settings. Nothing is saved yet. Tap Copy config.json and commit it to use them for alerts."); }
+    else if (loadErr && !rd) { showNotice("Could not load the latest reading. Check your connection and reopen the page."); }
     else if (rd && rd.seeded) { showNotice("These numbers are sample history from setup. The first real reading arrives after the next weekday close."); }
     else if (rd && rd.checkedAt && (Date.now() - new Date(rd.checkedAt).getTime()) > 5 * 86400000) { showNotice("The last check was more than five days ago. If that is unexpected, open the Actions tab on GitHub and look for a failed run."); }
     else if (cfg && rd && rd.ticker !== cfg.ticker) { showNotice("Last reading is for " + rd.ticker + ". The next after-close check will switch to " + cfg.ticker + "."); }
@@ -215,24 +254,24 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
     why.key = R.name + " pick: " + (p.level.fallback ? "no recent high is " + R.levelMin + "% or more above the last close, so this sits " + R.levelMin + "% above it." : "the " + fmtDate(p.level.date) + " high, the first one at least " + R.levelMin + "% above the last close.");
     why.sup = R.name + " pick: " + (p.support.fallback ? "no recent low is " + R.supMin + "% or more below the last close, so this sits " + R.supMin + "% below it." : "the " + fmtDate(p.support.date) + " low, the first one at least " + R.supMin + "% below the last close.");
     why.mult = R.name + " pick: " + R.mult + "×.";
-    dirty = true; msg(""); renderHelp();
+    dirty = true; msg(""); sync();
   }
   function fillForm() {
-    if (!cfg || dirty) return;
-    $("f-ticker").value = cfg.ticker || ""; $("f-key").value = cfg.keyLevel != null ? cfg.keyLevel : "";
-    $("f-sup").value = cfg.supportLevel != null ? cfg.supportLevel : ""; $("f-mult").value = cfg.volumeMultiple != null ? cfg.volumeMultiple : "";
+    if (!saved || dirty) return;
+    $("f-ticker").value = saved.ticker || ""; $("f-key").value = saved.keyLevel != null ? saved.keyLevel : "";
+    $("f-sup").value = saved.supportLevel != null ? saved.supportLevel : ""; $("f-mult").value = saved.volumeMultiple != null ? saved.volumeMultiple : "";
     why = { key: "", sup: "", mult: "" };
-    setRisk(cfg.risk && RISK[cfg.risk] ? cfg.risk : null);
+    setRisk(saved.risk && RISK[saved.risk] ? saved.risk : null);
   }
   document.addEventListener("change", function (e) { var t = e.target; if (t && t.name === "risk" && t.checked) applyPreset(t.value); });
   [["f-key", "key"], ["f-sup", "sup"], ["f-mult", "mult"]].forEach(function (p) {
-    $(p[0]).addEventListener("input", function () { why[p[1]] = ""; setRisk(null); renderHelp(); });
+    $(p[0]).addEventListener("input", function () { why[p[1]] = ""; setRisk(null); sync(); });
   });
   $("f-ticker").addEventListener("input", function () { why = { key: "", sup: "", mult: "" }; setRisk(null); renderHelp(); });
   document.addEventListener("click", function (e) {
     var b = e.target.closest ? e.target.closest(".chip-btn") : null; if (!b) return;
     var f = b.getAttribute("data-field"), id = f === "key" ? "f-key" : f === "sup" ? "f-sup" : "f-mult";
-    $(id).value = b.getAttribute("data-val"); why[f] = ""; setRisk(null); dirty = true; msg(""); renderHelp();
+    $(id).value = b.getAttribute("data-val"); why[f] = ""; setRisk(null); dirty = true; msg(""); sync();
   });
 
   function msg(t, err) { var m = $("f-msg"); m.textContent = t; m.className = err ? "err" : ""; }
@@ -273,9 +312,13 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
   }
   function load() {
     return Promise.all([getJson("config.json"), getJson("data.json").catch(function () { return null; })]).then(function (res) {
-      loadErr = false; cfg = res[0]; rd = res[1]; fillForm(); render();
+      loadErr = false; saved = res[0]; cfg = saved; rd = res[1]; fillForm(); applyDraft(); render();
     }).catch(function () { loadErr = true; render(); });
   }
+  $("refresh").addEventListener("click", function () {
+    var b = $("refresh"); b.disabled = true; b.textContent = "Refreshing…";
+    load().then(function () { b.textContent = "Updated"; setTimeout(function () { b.textContent = "Refresh"; b.disabled = false; }, 1500); });
+  });
   render();
   load();
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") load(); });
