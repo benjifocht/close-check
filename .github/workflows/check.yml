@@ -2,14 +2,18 @@ name: Close Check
 
 on:
   schedule:
+    # 4:23 and 4:53 PM Eastern, weekdays. Two UTC hours cover daylight and standard time;
+    # the script skips any run that is too early or already recorded today.
     - cron: "23,53 20,21 * * 1-5"
+    # About 9:50 AM Eastern: a "today so far" snapshot. The script skips the slot that is outside market hours.
+    - cron: "50 13,14 * * 1-5"
   workflow_dispatch:
     inputs:
       mode:
-        description: "normal = real check, check_data = test the data key, test_push = test the phone alert"
+        description: "normal = after-close check, live = refresh today-so-far now, check_data = test the data key, test_push = test the phone alert"
         type: choice
         default: normal
-        options: [normal, check_data, test_push]
+        options: [live, normal, check_data, test_push]
   push:
     branches: [main]
     paths: ["site/**"]
@@ -40,7 +44,7 @@ jobs:
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           PAGE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
-          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'normal' }}
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || (github.event.schedule == '50 13,14 * * 1-5' && 'morning' || 'normal') }}
         run: node scripts/check.js
       - name: Save the new reading
         if: steps.check.outputs.changed == 'true'
