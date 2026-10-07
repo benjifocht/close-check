@@ -123,6 +123,13 @@
       </div>
       <div class="actions"><button id="f-save" type="submit">Copy config.json</button><a id="f-edit" class="lnk" href="#" target="_blank" rel="noopener" hidden>Open config.json on GitHub</a><p id="f-msg" role="status"></p></div>
       <textarea id="f-ta" class="ta" readonly rows="6" hidden aria-label="config.json text"></textarea>
+      <details id="gh" class="gh" hidden>
+        <summary>Save in one tap (connect GitHub)</summary>
+        <p id="gh-state" class="help"></p>
+        <p class="help">On GitHub: Settings &rarr; Developer settings &rarr; Personal access tokens &rarr; Fine-grained tokens &rarr; Generate new token. Choose <b>Only select repositories</b> and pick this repo, set <b>Contents</b> to <b>Read and write</b>, and set an expiry. Paste the token here once. It stays on this device only and can change nothing but this repo's files.</p>
+        <input id="gh-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…" aria-label="GitHub token">
+        <div class="actions"><button id="gh-save" type="button" class="ghost">Connect</button><button id="gh-clear" type="button" class="ghost" hidden>Remove token</button></div>
+      </details>
       <p class="help">Nothing changes until you paste this into config.json on GitHub and commit it. The next after-close check then uses it.</p>
     </form>
   </section>

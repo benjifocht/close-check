@@ -278,6 +278,57 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
 
   document.addEventListener("input", function (e) { if (e.target && e.target.closest && e.target.closest("#cfgForm")) { dirty = true; msg(""); } });
 
+  var TOKEN_KEY = "closecheck.ghtoken";
+  function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
+  function setToken(t) { try { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); return true; } catch (e) { return false; } }
+  function repoInfo() {
+    if (window.__ccRepo) return window.__ccRepo;
+    var m = location.hostname.match(/^([^.]+)\.github\.io$/), seg = location.pathname.split("/").filter(Boolean)[0];
+    return m && seg ? m[1] + "/" + seg : null;
+  }
+  function refreshSaveUi() {
+    var has = !!getToken() && !!repoInfo();
+    $("f-save").textContent = has ? "Save to GitHub" : "Copy config.json";
+    $("gh").hidden = !repoInfo();
+    $("gh-state").textContent = getToken() ? "Connected. Save commits your settings straight to GitHub." : "Not connected. Save copies the settings so you can paste them into GitHub.";
+    $("gh-clear").hidden = !getToken();
+  }
+  function ghFetch(path, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({ Accept: "application/vnd.github+json", Authorization: "Bearer " + getToken(), "X-GitHub-Api-Version": "2022-11-28" }, opts.headers || {});
+    return fetch("https://api.github.com/repos/" + repoInfo() + path, opts);
+  }
+  function saveToGitHub(doc, text) {
+    var btn = $("f-save"); btn.disabled = true; msg("Saving…");
+    var body64 = btoa(unescape(encodeURIComponent(text)));
+    function attempt(retry) {
+      return ghFetch("/contents/site/config.json?ref=main&t=" + Date.now(), { cache: "no-store" }).then(function (r) {
+        if (r.status === 401 || r.status === 403 || r.status === 404) throw new Error("auth");
+        if (!r.ok) throw new Error("http " + r.status);
+        return r.json();
+      }).then(function (cur) {
+        return ghFetch("/contents/site/config.json", { method: "PUT", body: JSON.stringify({ message: "Update watched settings (" + doc.ticker + ")", content: body64, sha: cur.sha, branch: "main" }) });
+      }).then(function (r) {
+        if ((r.status === 409 || r.status === 422) && retry) return attempt(false);
+        if (r.status === 401 || r.status === 403 || r.status === 404) throw new Error("auth");
+        if (!r.ok) throw new Error("http " + r.status);
+      });
+    }
+    attempt(true).then(function () {
+      saved = doc; cfg = saved; dirty = false; applyDraft(); render();
+      msg("Saved to GitHub. The page redeploys in a minute or two, and the next check uses these settings.");
+    }).catch(function (e) {
+      msg(e.message === "auth" ? "GitHub refused the token. Check that it has Contents: Read and write on this repo and has not expired, then reconnect." : "Could not save (" + e.message + "). Check your connection and try again.", true);
+    }).then(function () { btn.disabled = false; });
+  }
+  $("gh-save").addEventListener("click", function () {
+    var v = $("gh-token").value.trim();
+    if (!/^(github_pat_|ghp_)[A-Za-z0-9_]{20,}$/.test(v)) return msg("That does not look like a GitHub token. It starts with github_pat_.", true);
+    if (!setToken(v)) return msg("This browser would not store the token, so Save will keep using copy and paste.", true);
+    $("gh-token").value = ""; msg("Token saved on this device."); refreshSaveUi();
+  });
+  $("gh-clear").addEventListener("click", function () { setToken(""); msg("Token removed from this device."); refreshSaveUi(); });
+
   function repoEditUrl() {
     var host = location.hostname, m = host.match(/^([^.]+)\.github\.io$/), seg = location.pathname.split("/").filter(Boolean)[0];
     return m && seg ? "https://github.com/" + m[1] + "/" + seg + "/edit/main/site/config.json" : null;
@@ -293,6 +344,7 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
     var doc = { ticker: tk, keyLevel: key, supportLevel: sup, volumeMultiple: mult };
     var rk = curRisk(); if (rk) doc.risk = rk;
     var text = JSON.stringify(doc, null, 2) + "\n", ta = $("f-ta");
+    if (getToken() && repoInfo()) return saveToGitHub(doc, text);
     ta.value = text; ta.hidden = false;
     var link = $("f-edit"), url = repoEditUrl(); if (url) { link.href = url; link.hidden = false; }
     var done = function () { msg("Copied. Paste it over the contents of config.json on GitHub, then commit."); };
@@ -319,6 +371,7 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
     var b = $("refresh"); b.disabled = true; b.textContent = "Refreshing…";
     load().then(function () { b.textContent = "Updated"; setTimeout(function () { b.textContent = "Refresh"; b.disabled = false; }, 1500); });
   });
+  refreshSaveUi();
   render();
   load();
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") load(); });
