@@ -20,9 +20,37 @@ day's close, works out the three signals (close vs your level, volume vs the 20-
    (a test alert should reach your phone).
 7. **Install.** Open `https://YOURNAME.github.io/close-check/` in Safari > Share > Add to Home Screen.
 
+## Watchlist
+
+- Add up to 12 stocks in the page's Watchlist section. A new stock gets starting levels from the risk preset you pick
+  (Cautious, Balanced or Aggressive) after its first after-close check. Change any number and Save to set your own.
+- Two notifications a day, each covering the whole list: a morning update at 10:00 AM ET (live prices) and the close
+  check at about 4:02 PM ET. With the summary on, each lists every stock; with it off, each is sent only when
+  something needs a look.
+- Why 4:02 and not 4:00: the closing price and volume need a minute or two to be published. The checker keeps trying
+  for up to eight minutes if they are not there yet.
+- Timing: GitHub's scheduler often starts runs 10 to 30 minutes late, so each run starts 30 minutes early and waits
+  for the exact minute. Backup runs after the close catch a dropped one.
+- The free Twelve Data plan allows 8 requests a minute and 800 credits a day. Each stock costs 1 credit per check, so
+  12 stocks use about 12 to 25 credits a day, and the checker pauses between groups of 8.
+
 ## Changing the stock or levels
 
-Use the page's fields and presets, tap **Copy config.json**, open the link it shows, paste, commit.
+Use the page's fields and presets, then tap **Save**.
+
+- **One-tap save (optional):** open "Save in one tap" on the page and paste a GitHub fine-grained token limited to this
+  repo with Contents and Actions both set to Read and write (set an expiry). The token lives only in that device's browser. Save then commits
+  config.json for you. Without a token, Save copies the settings and links to GitHub's editor to paste them.
+- iPhone note: the home-screen app and Safari keep separate storage, so paste the token in the one you use.
+
+## Live price and refresh
+
+- The 10 AM update saves a "Today so far" snapshot. It costs 1 data credit per stock and never changes the verdict.
+  The verdict always uses the last full close.
+- **Refresh** reloads everything straight from the repository. With a token that has Actions access, it also starts a
+  check (live prices during market hours, the close after 4:05 PM ET), waits for it, and shows the result. That costs
+  1 data credit per stock. Without a token it only reloads what is saved.
+- Changing the risk level or any number previews instantly on the page. Alerts only use the saved config.json.
 
 ## Notes
 

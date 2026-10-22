@@ -28,10 +28,24 @@
         <span id="chg" class="chg mono"></span>
       </div>
     </div>
-    <div class="freshbox"><p id="fresh" class="fresh"></p><button id="refresh" type="button" class="ghost">Refresh</button></div>
+    <div class="freshbox"><p id="fresh" class="fresh"></p><button id="refresh" type="button" class="ghost">Refresh</button><p id="refresh-msg" class="fresh" role="status"></p></div>
   </header>
 
   <p id="notice" class="notice" hidden></p>
+
+  <section class="panel" aria-label="Watchlist">
+    <div class="whead"><h3>Watchlist</h3><span id="w-count" class="hint"></span></div>
+    <div id="wl" class="wl"></div>
+    <div class="wadd">
+      <input id="w-add" type="text" maxlength="6" placeholder="Add ticker" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Add a ticker">
+      <select id="w-risk" aria-label="Risk level for the new stock"><option value="cautious">Cautious</option><option value="balanced" selected>Balanced</option><option value="aggressive">Aggressive</option></select>
+      <button id="w-add-btn" type="button">Add</button>
+    </div>
+    <p id="w-msg" class="note" role="status"></p>
+    <label class="chk"><input id="w-digest" type="checkbox"> Send a summary of every stock at 10 AM and 4 PM</label>
+    <p class="help">Off: you are only notified when something needs a look. Either way each time slot is one notification for the whole list, not one per stock. Press Save to keep any change.</p>
+    <div class="actions"><button id="w-remove" type="button" class="ghost">Remove stock</button></div>
+  </section>
 
   <section id="live" class="live" hidden aria-label="Today so far">
     <p class="lbl">Today so far</p>
@@ -79,9 +93,10 @@
   </section>
 
   <section class="panel" aria-label="What you are watching">
-    <h3>What you are watching</h3>
+    <h3 id="set-h">What you are watching</h3>
     <form id="cfgForm" novalidate>
-      <div class="field tk"><label for="f-ticker">Ticker</label><input id="f-ticker" type="text" maxlength="6" placeholder="ETSY" autocomplete="off" spellcheck="false"></div>
+      <p id="auto-note" class="note" hidden></p>
+      <div class="field tk"><label for="f-ticker">Ticker</label><input id="f-ticker" type="text" readonly maxlength="6" placeholder="ETSY" autocomplete="off" spellcheck="false"></div>
 
       <fieldset class="risk">
         <legend>Risk level</legend>
@@ -126,7 +141,7 @@
       <details id="gh" class="gh" hidden>
         <summary>Save in one tap (connect GitHub)</summary>
         <p id="gh-state" class="help"></p>
-        <p class="help">On GitHub: Settings &rarr; Developer settings &rarr; Personal access tokens &rarr; Fine-grained tokens &rarr; Generate new token. Choose <b>Only select repositories</b> and pick this repo, set <b>Contents</b> to <b>Read and write</b>, and set an expiry. Paste the token here once. It stays on this device only and can change nothing but this repo's files.</p>
+        <p class="help">On GitHub: Settings &rarr; Developer settings &rarr; Personal access tokens &rarr; Fine-grained tokens &rarr; Generate new token. Choose <b>Only select repositories</b> and pick this repo, set <b>Contents</b> and <b>Actions</b> to <b>Read and write</b> (Actions lets Refresh fetch fresh prices), and set an expiry. Paste the token here once. It stays on this device only and can change nothing but this repo's files.</p>
         <input id="gh-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…" aria-label="GitHub token">
         <div class="actions"><button id="gh-save" type="button" class="ghost">Connect</button><button id="gh-clear" type="button" class="ghost" hidden>Remove token</button></div>
       </details>
@@ -136,7 +151,7 @@
 
   <section class="panel how" aria-label="How alerts work">
     <h3>When you get a notification</h3>
-    <p>The check runs on weekdays around 4:20 PM ET, after the close. You are notified when the verdict changes, when a close crosses your level or support, or when the close lands within 2% of either line. On quiet days nothing is sent.</p>
+    <p>Two checks run on weekdays: a morning update at 10:00 AM ET on the live price, and the close check at about 4:02 PM ET. You are notified when the verdict changes, when a price crosses your level or support, or when it lands within 2% of either line. With the summary on, you also get the status of every stock at both times.</p>
     <p>A bullish confirmation needs all three: a close above your level, heavy volume, and a close above the 50-day average. A bearish one is the mirror image below support.</p>
   </section>
 

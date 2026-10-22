@@ -1,7 +1,8 @@
-import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, preset, rollingRatios, countHeavy, levelChips, supportChips } from "./logic.js";
+import { normalizeConfig, normalizeData, effectiveCfg, MAX_WATCH, evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, preset, rollingRatios, countHeavy, levelChips, supportChips } from "./logic.js";
 
   var $ = function (id) { return document.getElementById(id); };
-  var saved = null, cfg = null, rd = null, dirty = false, lastW = 0, loadErr = false;
+  var conf = null, work = null, data = { stocks: {}, updatedAt: null }, sel = null;
+  var saved = null, cfg = null, rd = null, dirty = false, lastW = 0, loadErr = false, refreshing = false, removeArmed = null;
   var why = { key: "", sup: "", mult: "" };
 
   function setChip(el, cls, text) { el.className = "chip" + (cls ? " " + cls : ""); el.textContent = text; }
@@ -46,7 +47,7 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
     if (url) { link.href = url; link.hidden = false; } else { link.hidden = true; }
     if (!lv) {
       $("live-main").textContent = "No snapshot yet today";
-      $("live-sub").textContent = "A snapshot is taken around 9:50 AM ET. The verdict above always uses the last full close.";
+      $("live-sub").textContent = "A snapshot is taken at 10 AM ET. The verdict above always uses the last full close.";
       return;
     }
     var chg = (lv.price / lv.prevClose - 1) * 100;
@@ -56,14 +57,123 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
     $("live-sub").textContent = "Price right now is " + where + ", but only the close counts. Volume so far " + fmtVol(lv.volume) + " (day not finished). As of " + when + " ET. Press Refresh to reload the newest snapshot.";
   }
 
+  /* ---------- Watchlist state ---------- */
+  var SEL_KEY = "closecheck.sel";
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function lsGet(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage may be blocked */ } }
+  function workEntry(t) { var l = work ? work.watchlist : []; for (var i = 0; i < l.length; i++) if (l[i].ticker === t) return l[i]; return null; }
+
+  // Reads the form into a watchlist entry. Blank numbers (or numbers equal to the automatic ones) keep the stock on automatic levels.
+  function buildEntry(strict) {
+    var e0 = workEntry(sel); if (!e0) return { error: "No stock is selected." };
+    var kS = $("f-key").value.trim(), sS = $("f-sup").value.trim(), mS = $("f-mult").value.trim();
+    var key = parseFloat(kS), sup = parseFloat(sS), mult = parseFloat(mS);
+    var risk = curRisk() || e0.risk || null;
+    var blank = !kS && !sS && !mS;
+    var auto = rd && rd.auto && rd.auto.keyLevel > 0 ? rd.auto : null;
+    if (blank || (!e0.keyLevel && auto && key === auto.keyLevel && sup === auto.supportLevel && mult === auto.volumeMultiple)) return { entry: risk ? { ticker: sel, risk: risk } : { ticker: sel } };
+    if (!(key > 0) || !(sup > 0)) return { error: "Enter both prices as numbers above zero." };
+    if (!(key > sup)) return { error: "The level to watch must be higher than support." };
+    if (!(mult >= 1 && mult <= 5)) return { error: "Heavy volume should be between 1 and 5 times the average." };
+    var e = { ticker: sel, keyLevel: key, supportLevel: sup, volumeMultiple: mult };
+    if (curRisk()) e.risk = curRisk();
+    return { entry: e };
+  }
+  function putEntry(entry) { for (var i = 0; i < work.watchlist.length; i++) if (work.watchlist[i].ticker === entry.ticker) { work.watchlist[i] = entry; return; } }
+  function draftConfig() {
+    if (!work) return null;
+    var d = clone(work), r = buildEntry(false);
+    if (r.entry) for (var i = 0; i < d.watchlist.length; i++) if (d.watchlist[i].ticker === r.entry.ticker) d.watchlist[i] = r.entry;
+    d.digest = $("w-digest").checked;
+    return d;
+  }
+  function hasUnsaved() {
+    if (!conf || !work) return false;
+    try { return JSON.stringify(normalizeConfig(draftConfig())) !== JSON.stringify(conf); } catch (e) { return true; }
+  }
+  function selectStock(t) {
+    sel = t; lsSet(SEL_KEY, t);
+    rd = data.stocks[t] || null;
+    var w = workEntry(t);
+    saved = (w && effectiveCfg(w, rd)) || { ticker: t };
+    fillForm(true);
+    applyDraft();
+  }
+  function ensureSelection() {
+    var list = work ? work.watchlist : [];
+    if (!list.length) { sel = null; return; }
+    if (!sel || !workEntry(sel)) sel = workEntry(lsGet(SEL_KEY)) ? lsGet(SEL_KEY) : list[0].ticker;
+  }
+
+  function renderWatchlist() {
+    var host = $("wl"), list = work ? work.watchlist : [], html = "", et = etParts();
+    list.forEach(function (w) {
+      var s = data.stocks[w.ticker], c = effectiveCfg(w, s), price = null, chg = null, pill = "◌ Awaiting first check", st = "empty";
+      if (w.ticker === sel && cfg && cfg.keyLevel > 0) c = cfg;
+      if (s && typeof s.close === "number") {
+        var lv = s.live && s.live.date === et.date ? s.live : null;
+        price = lv ? lv.price : s.close;
+        var base = lv ? lv.prevClose : (Array.isArray(s.history) && s.history.length > 1 ? s.history[s.history.length - 2].close : null);
+        chg = base ? (price / base - 1) * 100 : null;
+        if (c) { var e = evaluate(s, c); pill = e.pill; st = e.state; }
+      }
+      var isNew = conf && !conf.watchlist.some(function (x) { return x.ticker === w.ticker; });
+      html += '<button type="button" class="wrow" data-t="' + w.ticker + '" data-state="' + st + '" aria-pressed="' + (w.ticker === sel) + '">' +
+        '<span class="wt">' + w.ticker + (isNew ? ' <i>new</i>' : "") + "</span>" +
+        '<span class="wp mono">' + (price != null ? "$" + fmtPrice(price) : "—") + "</span>" +
+        '<span class="wc mono">' + (chg != null ? (chg >= 0 ? "▲ " : "▼ ") + pctStr(chg) : "") + "</span>" +
+        '<span class="wst">' + pill + "</span></button>";
+    });
+    host.innerHTML = html || '<p class="hint">No stocks yet.</p>';
+    $("w-remove").disabled = list.length < 2;
+    $("w-remove").textContent = removeArmed === sel && sel ? "Tap again to remove " + sel : "Remove " + (sel || "stock");
+    $("w-count").textContent = list.length + " of " + MAX_WATCH + " stocks";
+  }
+
+  function commitForm() {
+    var r = buildEntry(true);
+    if (r.error) { msg(r.error, true); return false; }
+    putEntry(r.entry); return true;
+  }
+  $("wl").addEventListener("click", function (ev) {
+    var b = ev.target.closest ? ev.target.closest(".wrow") : null; if (!b) return;
+    var t = b.getAttribute("data-t"); if (t === sel) return;
+    if (!commitForm()) return;
+    removeArmed = null; dirty = false; msg("");
+    selectStock(t); render();
+  });
+  $("w-add-btn").addEventListener("click", function () {
+    var t = $("w-add").value.trim().toUpperCase(), m = $("w-msg");
+    if (!/^[A-Z][A-Z.\-]{0,5}$/.test(t)) { m.textContent = "Enter a ticker of one to six letters, like CEG."; m.className = "err"; return; }
+    if (workEntry(t)) { m.textContent = t + " is already on the list."; m.className = "err"; return; }
+    if (work.watchlist.length >= MAX_WATCH) { m.textContent = "The free data plan is sized for " + MAX_WATCH + " stocks. Remove one first."; m.className = "err"; return; }
+    if (!commitForm()) return;
+    work.watchlist.push({ ticker: t, risk: $("w-risk").value });
+    $("w-add").value = ""; m.className = ""; m.textContent = t + " added. Press Save to start watching it. Its levels are picked from the " + $("w-risk").value + " preset after the first check.";
+    dirty = false; selectStock(t); render();
+  });
+  $("w-add").addEventListener("keydown", function (ev) { if (ev.key === "Enter") { ev.preventDefault(); $("w-add-btn").click(); } });
+  $("w-remove").addEventListener("click", function () {
+    if (!sel || work.watchlist.length < 2) return;
+    if (removeArmed !== sel) { removeArmed = sel; renderWatchlist(); setTimeout(function () { if (removeArmed === sel) { removeArmed = null; renderWatchlist(); } }, 4000); return; }
+    var gone = sel; work.watchlist = work.watchlist.filter(function (x) { return x.ticker !== gone; });
+    removeArmed = null; sel = null; ensureSelection(); dirty = false;
+    $("w-msg").className = ""; $("w-msg").textContent = gone + " removed. Press Save to stop watching it.";
+    selectStock(sel); render();
+  });
+  $("w-digest").addEventListener("change", function () { render(); });
+
   function render() {
     renderHelp();
     renderLive();
-    $("tk").textContent = (cfg && cfg.ticker) || (rd && rd.ticker) || "—";
+    renderWatchlist();
+    $("tk").textContent = sel || "—";
+    $("set-h").textContent = sel ? "Settings for " + sel : "What you are watching";
     var v = $("verdict");
-    if (saved && cfg !== saved) { showNotice("Previewing these settings. Nothing is saved yet. Tap Copy config.json and commit it to use them for alerts."); }
+    if (hasUnsaved()) { showNotice("You have changes that are not saved yet. The page previews them, but alerts only use what is saved. Press Save."); }
     else if (loadErr && !rd) { showNotice("Could not load the latest reading. Check your connection and reopen the page."); }
-    else if (rd && rd.seeded) { showNotice("These numbers are sample history from setup. The first real reading arrives after the next weekday close."); }
+    else if (data.seeded || (rd && rd.seeded)) { showNotice("These numbers are sample history from setup. The first real reading arrives after the next weekday close."); }
     else if (rd && rd.checkedAt && (Date.now() - new Date(rd.checkedAt).getTime()) > 5 * 86400000) { showNotice("The last check was more than five days ago. If that is unexpected, open the Actions tab on GitHub and look for a failed run."); }
     else if (cfg && rd && rd.ticker !== cfg.ticker) { showNotice("Last reading is for " + rd.ticker + ". The next after-close check will switch to " + cfg.ticker + "."); }
     else { showNotice(""); }
@@ -71,8 +181,8 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
     if (!usable()) {
       v.setAttribute("data-state", "empty");
       $("vpill").textContent = "No reading yet";
-      $("vhead").textContent = cfg && rd && rd.ticker !== cfg.ticker ? "Waiting for the first " + cfg.ticker + " reading" : "Waiting for the first after-close check";
-      $("vwhy").textContent = cfg ? "The check runs on weekdays after the close and fills this page in." : "Set a ticker and your levels below. The check runs on weekdays after the close and fills this page in.";
+      $("vhead").textContent = sel && !rd ? "Waiting for the first " + sel + " reading" : "Waiting for the first after-close check";
+      $("vwhy").textContent = "The check runs on weekdays after the close and fills this page in." + (sel && !rd ? " If you just added " + sel + ", press Save first." : "");
       $("px").textContent = ""; $("chg").textContent = ""; $("fresh").textContent = "";
       ["s1v", "s2v", "s3v"].forEach(function (id) { $(id).textContent = "—"; });
       ["s1c", "s2c", "s3c"].forEach(function (id) { setChip($(id), "", "No data"); });
@@ -256,12 +366,14 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
     why.mult = R.name + " pick: " + R.mult + "×.";
     dirty = true; msg(""); sync();
   }
-  function fillForm() {
-    if (!saved || dirty) return;
+  function fillForm(force) {
+    if (!saved || (dirty && !force)) return;
     $("f-ticker").value = saved.ticker || ""; $("f-key").value = saved.keyLevel != null ? saved.keyLevel : "";
     $("f-sup").value = saved.supportLevel != null ? saved.supportLevel : ""; $("f-mult").value = saved.volumeMultiple != null ? saved.volumeMultiple : "";
     why = { key: "", sup: "", mult: "" };
     setRisk(saved.risk && RISK[saved.risk] ? saved.risk : null);
+    $("auto-note").hidden = !saved.auto;
+    if (saved.auto) $("auto-note").textContent = "These levels were picked automatically from the " + (RISK[saved.risk] ? RISK[saved.risk].name : "Balanced") + " preset on the first check. Change any number and press Save to set your own.";
   }
   document.addEventListener("change", function (e) { var t = e.target; if (t && t.name === "risk" && t.checked) applyPreset(t.value); });
   [["f-key", "key"], ["f-sup", "sup"], ["f-mult", "mult"]].forEach(function (p) {
@@ -307,7 +419,7 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
         if (!r.ok) throw new Error("http " + r.status);
         return r.json();
       }).then(function (cur) {
-        return ghFetch("/contents/site/config.json", { method: "PUT", body: JSON.stringify({ message: "Update watched settings (" + doc.ticker + ")", content: body64, sha: cur.sha, branch: "main" }) });
+        return ghFetch("/contents/site/config.json", { method: "PUT", body: JSON.stringify({ message: "Update watchlist (" + doc.watchlist.length + " stock" + (doc.watchlist.length === 1 ? "" : "s") + ")", content: body64, sha: cur.sha, branch: "main" }) });
       }).then(function (r) {
         if ((r.status === 409 || r.status === 422) && retry) return attempt(false);
         if (r.status === 401 || r.status === 403 || r.status === 404) throw new Error("auth");
@@ -315,7 +427,7 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
       });
     }
     attempt(true).then(function () {
-      saved = doc; cfg = saved; dirty = false; applyDraft(); render();
+      conf = doc; work = clone(conf); dirty = false; selectStock(sel); render();
       msg("Saved to GitHub. The page redeploys in a minute or two, and the next check uses these settings.");
     }).catch(function (e) {
       msg(e.message === "auth" ? "GitHub refused the token. Check that it has Contents: Read and write on this repo and has not expired, then reconnect." : "Could not save (" + e.message + "). Check your connection and try again.", true);
@@ -336,15 +448,11 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
 
   $("cfgForm").addEventListener("submit", function (ev) {
     ev.preventDefault();
-    var tk = $("f-ticker").value.trim().toUpperCase(), key = parseFloat($("f-key").value), sup = parseFloat($("f-sup").value), mult = parseFloat($("f-mult").value);
-    if (!/^[A-Z][A-Z.\-]{0,5}$/.test(tk)) return msg("Enter a ticker of one to six letters, like ETSY.", true);
-    if (!(key > 0) || !(sup > 0)) return msg("Enter both prices as numbers above zero.", true);
-    if (!(key > sup)) return msg("The level to watch must be higher than support.", true);
-    if (!(mult >= 1 && mult <= 5)) return msg("Heavy volume should be between 1 and 5 times the average.", true);
-    var doc = { ticker: tk, keyLevel: key, supportLevel: sup, volumeMultiple: mult };
-    var rk = curRisk(); if (rk) doc.risk = rk;
-    var text = JSON.stringify(doc, null, 2) + "\n", ta = $("f-ta");
-    if (getToken() && repoInfo()) return saveToGitHub(doc, text);
+    if (!commitForm()) return;
+    var payload;
+    try { payload = normalizeConfig({ digest: $("w-digest").checked, watchlist: work.watchlist }); } catch (e) { return msg(e.message.replace("config.json: ", ""), true); }
+    var text = JSON.stringify(payload, null, 2) + "\n", ta = $("f-ta");
+    if (getToken() && repoInfo()) return saveToGitHub(payload, text);
     ta.value = text; ta.hidden = false;
     var link = $("f-edit"), url = repoEditUrl(); if (url) { link.href = url; link.hidden = false; }
     var done = function () { msg("Copied. Paste it over the contents of config.json on GitHub, then commit."); };
@@ -359,19 +467,92 @@ import { evaluate, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, 
     }).observe($("chartwrap"));
   }
 
-  function getJson(name) {
+  function pagesJson(name) {
     return fetch(name + "?t=" + Date.now(), { cache: "no-store" }).then(function (r) { if (!r.ok) throw new Error(name); return r.json(); });
   }
-  function load() {
-    return Promise.all([getJson("config.json"), getJson("data.json").catch(function () { return null; })]).then(function (res) {
-      loadErr = false; saved = res[0]; cfg = saved; rd = res[1]; fillForm(); applyDraft(); render();
+  // fresh = read straight from the repository, which skips the minute or two GitHub Pages can lag behind a commit.
+  function fetchJson(name, fresh) {
+    var repo = repoInfo();
+    if (!fresh || !repo) return pagesJson(name);
+    var h = { Accept: "application/vnd.github.raw+json" }; if (getToken()) h.Authorization = "Bearer " + getToken();
+    return fetch("https://api.github.com/repos/" + repo + "/contents/site/" + name + "?ref=main&t=" + Date.now(), { cache: "no-store", headers: h })
+      .then(function (r) { if (!r.ok) throw new Error(name); return r.json(); })
+      .catch(function () { return pagesJson(name); });
+  }
+  function load(fresh) {
+    return Promise.all([fetchJson("config.json", fresh), fetchJson("data.json", fresh).catch(function () { return null; })]).then(function (res) {
+      loadErr = false;
+      var keep = hasUnsaved();
+      conf = normalizeConfig(res[0]); data = normalizeData(res[1]);
+      if (!keep) { work = clone(conf); dirty = false; $("w-digest").checked = conf.digest; }
+      else { // keep unsaved edits, but pick up any stock another device added or removed only if nothing is pending
+        if (!work) work = clone(conf);
+      }
+      ensureSelection();
+      if (keep) { rd = data.stocks[sel] || null; var w = workEntry(sel); saved = (w && effectiveCfg(w, rd)) || { ticker: sel }; applyDraft(); }
+      else selectStock(sel);
+      render();
     }).catch(function () { loadErr = true; render(); });
   }
-  $("refresh").addEventListener("click", function () {
-    var b = $("refresh"); b.disabled = true; b.textContent = "Refreshing…";
-    load().then(function () { b.textContent = "Updated"; setTimeout(function () { b.textContent = "Refresh"; b.disabled = false; }, 1500); });
-  });
+
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function setRefreshMsg(t) { $("refresh-msg").textContent = t || ""; }
+  // Is there anything newer than the saved data that a check could fetch right now?
+  function refreshUseful() {
+    var et = etParts(); if (et.weekend || et.minutes < 9 * 60 + 35) return false;
+    if (et.minutes < 16 * 60 + 5) return true;
+    return (conf ? conf.watchlist : []).some(function (w) { var s = data.stocks[w.ticker]; return !s || s.asOf !== et.date; });
+  }
+  function waitForRun(t0) {
+    var tries = 0;
+    function poll() {
+      tries++;
+      return sleep(4000).then(function () {
+        return ghFetch("/actions/workflows/check.yml/runs?event=workflow_dispatch&per_page=5&t=" + Date.now(), { cache: "no-store" });
+      }).then(function (r) { if (!r.ok) throw new Error("runs " + r.status); return r.json(); }).then(function (j) {
+        var run = (j.workflow_runs || []).filter(function (x) { return new Date(x.created_at).getTime() >= t0 - 20000; })[0];
+        if (run && run.status === "completed") return run.conclusion;
+        if (tries >= 60) return "timeout";
+        return poll();
+      });
+    }
+    return poll();
+  }
+  function dispatchCheck() {
+    var last = parseInt(lsGet("closecheck.lastRun") || "0", 10);
+    if (Date.now() - last < 60000) return Promise.resolve("recent");
+    var t0 = Date.now();
+    return ghFetch("/actions/workflows/check.yml/dispatches", { method: "POST", body: JSON.stringify({ ref: "main", inputs: { mode: "refresh" } }) }).then(function (r) {
+      if (r.status === 401 || r.status === 403 || r.status === 404) return "noaccess";
+      if (r.status !== 204) return "error";
+      lsSet("closecheck.lastRun", String(Date.now()));
+      setRefreshMsg("Fetching fresh prices. This takes about half a minute…");
+      return waitForRun(t0);
+    }).catch(function () { return "error"; });
+  }
+  function doRefresh() {
+    if (refreshing) return; refreshing = true;
+    var b = $("refresh"); b.disabled = true; b.textContent = "Refreshing…"; setRefreshMsg("");
+    var canRun = !!getToken() && !!repoInfo(), useful = refreshUseful(), step = Promise.resolve(null);
+    if (useful && canRun) step = dispatchCheck();
+    step.then(function (outcome) {
+      return load(true).then(function () {
+        var when = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date()) + " ET";
+        var m;
+        if (!useful) m = "Reloaded at " + when + ". The market is closed, so the last close is the newest data.";
+        else if (!canRun) m = "Reloaded the saved data at " + when + ". To fetch fresh prices from here, connect GitHub below with Actions access.";
+        else if (outcome === "noaccess") m = "Reloaded the saved data at " + when + ". Your token cannot start checks. Add Actions: Read and write to it.";
+        else if (outcome === "recent") m = "Updated at " + when + ". A fresh check ran less than a minute ago.";
+        else if (outcome === "success") m = "Fresh prices fetched and loaded at " + when + ".";
+        else if (outcome === "failure") m = "Loaded what was available at " + when + ". Some stocks could not be fetched. Look at the Actions tab on GitHub.";
+        else if (outcome === "timeout") m = "The check is still running. Press Refresh again in a minute.";
+        else m = "The check did not finish cleanly, so this is the saved data as of " + when + ". Look at the Actions tab on GitHub.";
+        setRefreshMsg(m);
+      });
+    }).then(function () { b.textContent = "Refresh"; b.disabled = false; refreshing = false; });
+  }
+  $("refresh").addEventListener("click", doRefresh);
   refreshSaveUi();
   render();
-  load();
-  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") load(); });
+  load(false);
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible" && !refreshing) load(false); });

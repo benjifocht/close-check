@@ -209,3 +209,94 @@ export function validateConfig(c) {
   if (!(volumeMultiple >= 1 && volumeMultiple <= 5)) throw new Error("config.json: volumeMultiple must be between 1 and 5");
   return { ticker, keyLevel, supportLevel, volumeMultiple };
 }
+
+/* ---------- Watchlist ---------- */
+export const MAX_WATCH = 12;
+const TICKER_RE = /^[A-Z][A-Z.\-]{0,5}$/;
+
+// Accepts the old single-stock file ({ticker, keyLevel, ...}) or the watchlist file ({digest, watchlist: [...]}).
+// Levels are optional per stock: a stock without them gets levels picked from its risk preset after its first check.
+export function normalizeConfig(c) {
+  if (!c || typeof c !== "object") throw new Error("config.json is missing or not an object");
+  const raw = Array.isArray(c.watchlist) ? c.watchlist : [c];
+  const seen = new Set(), watchlist = [];
+  for (const w of raw) {
+    if (!w || typeof w !== "object") throw new Error("config.json: each watchlist entry must be an object");
+    const ticker = String(w.ticker || "").trim().toUpperCase();
+    if (!TICKER_RE.test(ticker)) throw new Error("config.json: ticker must be one to six letters, like ETSY");
+    if (seen.has(ticker)) continue;
+    seen.add(ticker);
+    const e = { ticker };
+    if (w.keyLevel != null || w.supportLevel != null) {
+      const v = validateConfig({ ...w, ticker });
+      e.keyLevel = v.keyLevel; e.supportLevel = v.supportLevel; e.volumeMultiple = v.volumeMultiple;
+    }
+    if (w.risk && RISK[w.risk]) e.risk = w.risk;
+    watchlist.push(e);
+  }
+  if (!watchlist.length) throw new Error("config.json: the watchlist is empty");
+  if (watchlist.length > MAX_WATCH) throw new Error("config.json: the watchlist can hold at most " + MAX_WATCH + " stocks");
+  return { digest: c.digest == null ? true : c.digest !== false, watchlist };
+}
+
+// The data file is now { version: 2, updatedAt, stocks: { TICKER: reading } }. A single-stock file from before is wrapped.
+export function normalizeData(d) {
+  if (d && typeof d === "object" && d.stocks && typeof d.stocks === "object") return { version: 2, updatedAt: d.updatedAt || null, stocks: d.stocks, seeded: !!d.seeded, notified: d.notified && typeof d.notified === "object" ? d.notified : {} };
+  if (d && typeof d === "object" && d.ticker) return { version: 2, updatedAt: d.checkedAt || null, stocks: { [d.ticker]: d }, seeded: !!d.seeded, notified: {} };
+  return { version: 2, updatedAt: null, stocks: {}, seeded: false, notified: {} };
+}
+
+export function autoLevels(history, close, risk) {
+  const r = RISK[risk] ? risk : "balanced";
+  const p = preset(history, close, r);
+  return { keyLevel: p.level.price, supportLevel: p.support.price, volumeMultiple: p.mult, risk: r };
+}
+
+// The settings a stock is actually judged by: its own levels, else the ones picked automatically, else null.
+export function effectiveCfg(entry, stock) {
+  if (entry && entry.keyLevel > 0 && entry.supportLevel > 0) {
+    return { ticker: entry.ticker, keyLevel: entry.keyLevel, supportLevel: entry.supportLevel, volumeMultiple: entry.volumeMultiple || 1.5, risk: entry.risk, auto: false };
+  }
+  if (entry && stock && stock.auto && stock.auto.keyLevel > 0) {
+    return { ticker: entry.ticker, keyLevel: stock.auto.keyLevel, supportLevel: stock.auto.supportLevel, volumeMultiple: stock.auto.volumeMultiple || 1.5, risk: stock.auto.risk, auto: true };
+  }
+  return null;
+}
+
+// One push for the whole watchlist. items: [{ticker, next, cfg, decision}]. Returns null when nothing should be sent.
+export function summarize(items, digest) {
+  const flagged = items.filter((i) => i.decision.alert);
+  if (!flagged.length && !digest) return null;
+  const line = (i) => (i.decision.alert
+    ? i.decision.body
+    : i.ticker + " closed at " + fmtPrice(i.next.close) + ". " + evaluate(i.next, i.cfg).head + ".");
+  const ordered = flagged.concat(items.filter((i) => !i.decision.alert));
+  let title;
+  if (items.length === 1) title = "Close Check - " + items[0].ticker;
+  else if (flagged.length) title = "Close Check - " + flagged.length + " of " + items.length + " need a look";
+  else title = "Close Check - daily summary";
+  return { title, body: ordered.map(line).join("\n") };
+}
+
+// Morning check on a live price. Only a price beyond a line, or within 2% of one, counts as worth a look.
+export function morningStatus(live, cfg) {
+  const p = live.price, key = cfg.keyLevel, sup = cfg.supportLevel, reasons = [];
+  const chg = (p / live.prevClose - 1) * 100;
+  if (p > key) reasons.push("trading above your " + fmtPrice(key) + " level");
+  else if (p < sup) reasons.push("trading under " + fmtPrice(sup) + " support");
+  else {
+    if ((key - p) / key <= 0.02) reasons.push("within 2% of your " + fmtPrice(key) + " level");
+    if ((p - sup) / sup <= 0.02) reasons.push("within 2% of " + fmtPrice(sup) + " support");
+  }
+  return { flagged: reasons.length > 0, chg, reasons };
+}
+
+// items: [{ticker, live, status}]. Returns null when nothing should be sent.
+export function summarizeMorning(items, digest) {
+  const flagged = items.filter((i) => i.status.flagged);
+  if (!flagged.length && !digest) return null;
+  const line = (i) => i.ticker + " " + fmtPrice(i.live.price) + " (" + (i.status.chg >= 0 ? "+" : "-") + pctStr(i.status.chg) + " today): " + (i.status.reasons.join(", ") || "between your lines") + ".";
+  const ordered = flagged.concat(items.filter((i) => !i.status.flagged));
+  const title = flagged.length ? "Close Check - morning: " + flagged.length + " of " + items.length + " need a look" : "Close Check - morning update";
+  return { title, body: ordered.map(line).join("\n") + "\nPrices are intraday. Only the close counts." };
+}

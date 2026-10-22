@@ -139,7 +139,7 @@ fieldset.risk legend { padding: 0; margin-bottom: 6px; font-size: 13px; font-wei
 .opt input:disabled + span { opacity: 0.5; }
 #risk-desc, #risk-rules, #sugg-src { margin: 0; font-size: 13px; color: var(--ink-2); max-width: 66ch; }
 #risk-rules, #sugg-src { color: var(--muted); font-size: 12px; }
-input:not([type="radio"]) { font: inherit; font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; width: 100%; min-width: 0; }
+input:not([type="radio"]):not([type="checkbox"]) { font: inherit; font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; width: 100%; min-width: 0; }
 input[type="text"] { text-transform: uppercase; }
 input::placeholder { color: var(--muted); opacity: 0.7; }
 input:disabled { opacity: 0.5; }
@@ -166,3 +166,22 @@ button.ghost { background: var(--surface); color: var(--accent); border: 1px sol
 
 .gh { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
 .gh input[type="password"] { text-transform: none; }
+
+.whead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.wl { display: flex; flex-direction: column; gap: 8px; }
+.wrow { display: grid; grid-template-columns: minmax(64px, auto) 1fr auto; grid-template-areas: "t p c" "st st st"; gap: 2px 12px; align-items: baseline; width: 100%; text-align: left; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 48px; font-weight: 400; }
+.wrow[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.wrow .wt { grid-area: t; font-family: var(--display); font-weight: 700; font-size: 1.05rem; }
+.wrow .wt i { font-family: var(--body); font-size: 11px; font-weight: 600; font-style: normal; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin-left: 4px; }
+.wrow .wp { grid-area: p; font-size: 1rem; }
+.wrow .wc { grid-area: c; font-size: 0.85rem; color: var(--ink-2); }
+.wrow .wst { grid-area: st; font-size: 12px; font-weight: 600; color: var(--muted); }
+.wrow[data-state="confirm-up"] .wst { color: var(--good); }
+.wrow[data-state="confirm-down"] .wst { color: var(--bad); }
+.wrow[data-state="partial-up"] .wst, .wrow[data-state="partial-down"] .wst { color: var(--warn); }
+.wadd { display: flex; gap: 8px; align-items: stretch; }
+.wadd input { flex: 1 1 110px; min-width: 0; }
+.wadd select { font: inherit; padding: 9px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+.chk { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; color: var(--ink); }
+.chk input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+#w-msg.err { color: var(--bad); }

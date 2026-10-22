@@ -2,18 +2,21 @@ name: Close Check
 
 on:
   schedule:
-    # 4:23 and 4:53 PM Eastern, weekdays. Two UTC hours cover daylight and standard time;
-    # the script skips any run that is too early or already recorded today.
+    # Morning update at 10:00 AM Eastern and close check at 4:02 PM Eastern.
+    # GitHub's timer often starts runs 10 to 30 minutes late, so each run starts early (9:30 and 3:30)
+    # and the "wait" job below holds until the exact minute. Two UTC hours cover daylight and standard time;
+    # the wrong one for the season notices it is far too early and stops.
+    - cron: "30 13,14 * * 1-5"
+    - cron: "30 19,20 * * 1-5"
+    # Backup slots after the close in case a run above was dropped. They do nothing if the day is already recorded.
     - cron: "23,53 20,21 * * 1-5"
-    # About 9:50 AM Eastern: a "today so far" snapshot. The script skips the slot that is outside market hours.
-    - cron: "50 13,14 * * 1-5"
   workflow_dispatch:
     inputs:
       mode:
-        description: "normal = after-close check, live = refresh today-so-far now, check_data = test the data key, test_push = test the phone alert"
+        description: "refresh = what the page button runs, normal = after-close check, morning = send the morning update now, live = refresh today-so-far now, check_data = test the data key, test_push = test the phone alert"
         type: choice
         default: normal
-        options: [live, normal, check_data, test_push]
+        options: [refresh, live, normal, morning, check_data, test_push]
   push:
     branches: [main]
     paths: ["site/**"]
@@ -23,13 +26,43 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: close-check
-  cancel-in-progress: false
-
 jobs:
-  check:
+  wait:
+    # Only scheduled runs wait. It runs on its own so that a manual Refresh is never stuck behind it.
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.hold.outputs.proceed }}
+    steps:
+      - name: Hold until the exact time
+        id: hold
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          if [ "$SCHEDULE" = "30 13,14 * * 1-5" ]; then TARGET="10:00:10"; else TARGET="16:02:10"; fi
+          NOW=$(date +%s)
+          TGT=$(TZ=America/New_York date -d "today $TARGET" +%s)
+          WAIT=$((TGT - NOW))
+          if [ "$WAIT" -gt 3000 ]; then
+            echo "$TARGET Eastern is $((WAIT / 60)) minutes away, so this is the other daylight-saving slot. Stopping."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$WAIT" -gt 0 ]; then
+            echo "Holding $WAIT seconds until $TARGET Eastern."
+            sleep "$WAIT"
+          else
+            echo "$TARGET Eastern has already passed, going now."
+          fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+  check:
+    needs: wait
+    if: ${{ !cancelled() && (needs.wait.result == 'skipped' || needs.wait.outputs.proceed == 'true') }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: close-check
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -44,10 +77,11 @@ jobs:
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           PAGE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
-          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || (github.event.schedule == '50 13,14 * * 1-5' && 'morning' || 'normal') }}
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || (github.event.schedule == '30 13,14 * * 1-5' && 'morning' || 'normal') }}
+          RETRY_UNTIL_READY: ${{ github.event_name == 'schedule' }}
         run: node scripts/check.js
       - name: Save the new reading
-        if: steps.check.outputs.changed == 'true'
+        if: ${{ !cancelled() && steps.check.outputs.changed == 'true' }}
         run: |
           git config user.name "close-check"
           git config user.email "close-check@users.noreply.github.com"
@@ -55,10 +89,12 @@ jobs:
           git commit -m "Record close for $(date -u +%F)"
           git push
       - uses: actions/configure-pages@v5
+        if: ${{ !cancelled() }}
       - uses: actions/upload-pages-artifact@v3
+        if: ${{ !cancelled() }}
         with:
           path: site
       - name: Publish the page
         id: deploy
-        if: steps.check.outputs.changed == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: ${{ !cancelled() && (steps.check.outputs.changed == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
         uses: actions/deploy-pages@v4
