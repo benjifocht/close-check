@@ -279,7 +279,7 @@ export function summarize(items, digest) {
 }
 
 // Morning check on a live price. Only a price beyond a line, or within 2% of one, counts as worth a look.
-export function morningStatus(live, cfg) {
+export function morningStatus(live, cfg, stock) {
   const p = live.price, key = cfg.keyLevel, sup = cfg.supportLevel, reasons = [];
   const chg = (p / live.prevClose - 1) * 100;
   if (p > key) reasons.push("trading above your " + fmtPrice(key) + " level");
@@ -288,14 +288,45 @@ export function morningStatus(live, cfg) {
     if ((key - p) / key <= 0.02) reasons.push("within 2% of your " + fmtPrice(key) + " level");
     if ((p - sup) / sup <= 0.02) reasons.push("within 2% of " + fmtPrice(sup) + " support");
   }
-  return { flagged: reasons.length > 0, chg, reasons };
+  const verdict = liveVerdict(live, stock, cfg);
+  return { flagged: reasons.length > 0, chg, reasons, verdict };
+}
+
+// Share of a normal day's volume usually traded by this many minutes after the 9:30 open (rough, front-loaded).
+const VOL_CURVE = [[0, 0], [15, 0.1], [30, 0.17], [60, 0.28], [120, 0.45], [240, 0.72], [390, 1]];
+export function volumeShare(min) {
+  if (min >= 390) return 1;
+  if (min <= 0) return 0;
+  for (let i = 1; i < VOL_CURVE.length; i++) {
+    if (min <= VOL_CURVE[i][0]) {
+      const [a, fa] = VOL_CURVE[i - 1], [b, fb] = VOL_CURVE[i];
+      return fa + (fb - fa) * (min - a) / (b - a);
+    }
+  }
+  return 1;
+}
+function etMinutesSinceOpen(iso) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso));
+  const g = (t) => parseInt(parts.find((p) => p.type === t).value, 10);
+  return g("hour") * 60 + g("minute") - (9 * 60 + 30);
+}
+
+// A provisional verdict on the live price: the same three checks as the close, with the volume so far projected to a full day.
+// stock supplies avgVolume20 and ma50. Returns null when there is not enough to judge.
+export function liveVerdict(live, stock, cfg) {
+  if (!live || !stock || !cfg) return null;
+  const share = live.fetchedAt ? volumeShare(etMinutesSinceOpen(live.fetchedAt)) : 0;
+  const projected = share >= 0.05 && live.volume != null ? live.volume / share : null;
+  const e = evaluate({ close: live.price, volume: projected, avgVolume20: stock.avgVolume20, ma50: stock.ma50 }, cfg);
+  const pace = e.ratio == null ? "volume pace unknown" : "volume pace about " + e.ratio.toFixed(1) + "x the average (needs " + (cfg.volumeMultiple || 1.5) + "x)";
+  return { state: e.state, head: e.head, pill: e.pill, ratio: e.ratio, pace };
 }
 
 // items: [{ticker, live, status}]. Returns null when nothing should be sent.
 export function summarizeMorning(items, digest) {
   const flagged = items.filter((i) => i.status.flagged);
   if (!flagged.length && !digest) return null;
-  const line = (i) => i.ticker + " " + fmtPrice(i.live.price) + " (" + (i.status.chg >= 0 ? "+" : "-") + pctStr(i.status.chg) + " today): " + (i.status.reasons.join(", ") || "between your lines") + ".";
+  const line = (i) => i.ticker + " " + fmtPrice(i.live.price) + " (" + (i.status.chg >= 0 ? "+" : "-") + pctStr(i.status.chg) + " today): " + (i.status.reasons.join(", ") || "between your lines") + "." + (i.status.verdict ? " Provisional: " + i.status.verdict.head.toLowerCase() + " (" + i.status.verdict.pace + ")." : "");
   const ordered = flagged.concat(items.filter((i) => !i.status.flagged));
   const title = flagged.length ? "Close Check - morning: " + flagged.length + " of " + items.length + " need a look" : "Close Check - morning update";
   return { title, body: ordered.map(line).join("\n") + "\nPrices are intraday. Only the close counts." };

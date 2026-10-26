@@ -45,7 +45,7 @@ Use the page's fields and presets, then tap **Save**.
 
 ## Live price and refresh
 
-- The 10 AM update saves a "Today so far" snapshot. It costs 1 data credit per stock and never changes the verdict.
+- The 10 AM update saves a "Today so far" snapshot and adds a provisional verdict: the same three checks on the live price, with volume so far projected to a full day. It costs 1 data credit per stock and never changes the official close verdict.
   The verdict always uses the last full close.
 - **Refresh** reloads everything straight from the repository. With a token that has Actions access, it also starts a
   check (live prices during market hours, the close after 4:05 PM ET), waits for it, and shows the result. That costs

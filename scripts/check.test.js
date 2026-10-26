@@ -399,3 +399,17 @@ test("close check: records from 4:02 PM, and a scheduled run keeps trying until 
   assert.equal(manual.reason, "no session for today has been posted yet");
   assert.deepEqual(sleeps, []);
 });
+
+test("liveVerdict: provisional verdict projects volume so far to a full day", async () => {
+  const { liveVerdict, volumeShare } = await import("../site/logic.js");
+  assert.ok(Math.abs(volumeShare(30) - 0.17) < 1e-9);
+  const cfg = { keyLevel: 100, supportLevel: 90, volumeMultiple: 1.5 };
+  const stock = { avgVolume20: 1000, ma50: 95 };
+  // 10:00 AM ET = 14:00Z in October. 300 shares by 10:00 projects to ~1765, 1.8x.
+  const up = liveVerdict({ price: 101, volume: 300, fetchedAt: "2026-10-26T14:00:30Z" }, stock, cfg);
+  assert.equal(up.state, "confirm-up");
+  const slow = liveVerdict({ price: 101, volume: 100, fetchedAt: "2026-10-26T14:00:30Z" }, stock, cfg);
+  assert.equal(slow.state, "partial-up");
+  assert.match(slow.pace, /needs 1\.5x/);
+  assert.equal(liveVerdict(null, stock, cfg), null);
+});

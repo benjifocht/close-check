@@ -114,7 +114,7 @@ export async function run({ now = new Date(), env = process.env, fetchImpl = fet
         log(w.ticker + " live " + fmtPrice(live.price) + " vs previous close " + fmtPrice(live.prevClose) + ".");
         changed = true;
         const c = effectiveCfg(w, data.stocks[w.ticker]);
-        if (c) items.push({ ticker: w.ticker, live, status: morningStatus(live, c) });
+        if (c) items.push({ ticker: w.ticker, live, status: morningStatus(live, c, data.stocks[w.ticker]) });
       } catch (e) { errors.push(w.ticker + ": " + e.message); log(w.ticker + " failed: " + e.message); }
     }
     if (!changed) return { changed: false, alerted: false, reason: "no live data", errors };
