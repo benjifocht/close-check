@@ -147,7 +147,7 @@ test("run: breakout day alerts once, saves 60 sessions, second run is a no-op", 
   assert.equal(first.alerted, true);
   assert.equal(h.pushes.length, 1);
   assert.equal(h.pushes[0].url, "https://ntfy.sh/topic-secret");
-  assert.equal(h.pushes[0].headers.Click, "https://me.github.io/close-check/");
+  assert.match(h.pushes[0].headers.Click, /^https:\/\/me\.github\.io\/close-check\/\?n=\d+$/);
   assert.match(h.pushes[0].body, /Bullish confirmation/);
   const saved = readStock(h.dir);
   assert.equal(saved.asOf, "2026-10-05");
