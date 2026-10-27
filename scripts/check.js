@@ -36,7 +36,7 @@ async function push({ title, body, env, fetchImpl, log }) {
   const topic = (env.NTFY_TOPIC || "").trim();
   if (!topic) { log("NTFY_TOPIC is not set, so no notification was sent."); return false; }
   const headers = { Title: title };
-  if (env.PAGE_URL) headers.Click = env.PAGE_URL;
+  if (env.PAGE_URL) headers.Click = env.PAGE_URL + "?n=" + Date.now(); // a new address each time, so the page is never served from an old copy
   const res = await fetchImpl("https://ntfy.sh/" + encodeURIComponent(topic), { method: "POST", headers, body });
   if (!res.ok) throw new Error("ntfy returned HTTP " + res.status);
   log("Notification sent.");

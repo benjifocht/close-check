@@ -556,5 +556,13 @@ import { normalizeConfig, normalizeData, effectiveCfg, MAX_WATCH, evaluate, foll
   $("refresh").addEventListener("click", doRefresh);
   refreshSaveUi();
   render();
-  load(false);
-  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible" && !refreshing) load(false); });
+  // Opening the app (from a notification, the home screen or switching back) always reads the newest saved values.
+  var lastAuto = 0;
+  function autoLoad() {
+    if (refreshing || Date.now() - lastAuto < 3000) return;
+    lastAuto = Date.now(); load(true);
+  }
+  autoLoad();
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") autoLoad(); });
+  window.addEventListener("pageshow", function (e) { if (e.persisted) autoLoad(); });
+  window.addEventListener("focus", autoLoad);

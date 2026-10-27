@@ -95,6 +95,12 @@ jobs:
           git add site/data.json
           git commit -m "Record close for $(date -u +%F)"
           git push
+      - name: Stamp the page files with a version so phones never reuse old copies
+        if: ${{ !cancelled() }}
+        run: |
+          V=$(date +%s)
+          sed -i "s#style.css\"#style.css?v=$V\"#; s#page.js\"#page.js?v=$V\"#" site/index.html
+          sed -i "s#\./logic.js\"#./logic.js?v=$V\"#" site/page.js
       - uses: actions/configure-pages@v5
         if: ${{ !cancelled() }}
       - uses: actions/upload-pages-artifact@v3
