@@ -278,56 +278,37 @@ export function summarize(items, digest) {
   return { title, body: ordered.map(line).join("\n") };
 }
 
-// Morning check on a live price. Only a price beyond a line, or within 2% of one, counts as worth a look.
-export function morningStatus(live, cfg, stock) {
-  const p = live.price, key = cfg.keyLevel, sup = cfg.supportLevel, reasons = [];
-  const chg = (p / live.prevClose - 1) * 100;
-  if (p > key) reasons.push("trading above your " + fmtPrice(key) + " level");
-  else if (p < sup) reasons.push("trading under " + fmtPrice(sup) + " support");
-  else {
-    if ((key - p) / key <= 0.02) reasons.push("within 2% of your " + fmtPrice(key) + " level");
-    if ((p - sup) / sup <= 0.02) reasons.push("within 2% of " + fmtPrice(sup) + " support");
-  }
-  const verdict = liveVerdict(live, stock, cfg);
-  return { flagged: reasons.length > 0, chg, reasons, verdict };
+// Next-morning follow-through: how the price is behaving against yesterday's close verdict.
+// prev is the last recorded close reading (close, volume, avgVolume20, ma50). Signals only, never advice.
+export function followThrough(live, prev, cfg) {
+  const p = live.price, key = cfg.keyLevel, sup = cfg.supportLevel;
+  const base = live.prevClose || prev.close;
+  const gap = (p / base - 1) * 100;
+  const yEval = evaluate(prev, cfg);
+  const side = yEval.state.endsWith("-up") ? "up" : yEval.state.endsWith("-down") ? "down" : "none";
+  const g = pctStr(gap);
+  let kind, text, flagged = true;
+  if (side === "up") {
+    if (p < key) { kind = "failed"; text = "back under your " + fmtPrice(key) + " level, so the breakout has not held so far"; }
+    else if (gap <= -1) { kind = "fading"; text = "still above your " + fmtPrice(key) + " level but down " + g + " from the close, so it is fading"; }
+    else if (gap >= 3) { kind = "extended"; text = "gapped up " + g + ", well above your " + fmtPrice(key) + " level (a big gap is a more stretched entry)"; }
+    else { kind = "holding"; text = "holding above your " + fmtPrice(key) + " level, so the move is following through"; }
+  } else if (side === "down") {
+    if (p > sup) { kind = "failed"; text = "back above " + fmtPrice(sup) + " support, so the breakdown has not held so far"; }
+    else if (gap >= 1) { kind = "bouncing"; text = "still under " + fmtPrice(sup) + " support but bouncing " + g + " from the close"; }
+    else { kind = "holding"; text = "still under " + fmtPrice(sup) + " support, so the weakness is continuing"; }
+  } else if (p > key) { kind = "crossed"; text = "now above your " + fmtPrice(key) + " level, but yesterday closed below it. Wait for a close"; }
+  else if (p < sup) { kind = "crossed"; text = "now under " + fmtPrice(sup) + " support, but yesterday closed above it. Wait for a close"; }
+  else { kind = "none"; text = "no setup from yesterday and still between your lines"; flagged = false; }
+  return { side, kind, text, flagged, gap, yesterday: yEval.head };
 }
 
-// Share of a normal day's volume usually traded by this many minutes after the 9:30 open (rough, front-loaded).
-const VOL_CURVE = [[0, 0], [15, 0.1], [30, 0.17], [60, 0.28], [120, 0.45], [240, 0.72], [390, 1]];
-export function volumeShare(min) {
-  if (min >= 390) return 1;
-  if (min <= 0) return 0;
-  for (let i = 1; i < VOL_CURVE.length; i++) {
-    if (min <= VOL_CURVE[i][0]) {
-      const [a, fa] = VOL_CURVE[i - 1], [b, fb] = VOL_CURVE[i];
-      return fa + (fb - fa) * (min - a) / (b - a);
-    }
-  }
-  return 1;
-}
-function etMinutesSinceOpen(iso) {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso));
-  const g = (t) => parseInt(parts.find((p) => p.type === t).value, 10);
-  return g("hour") * 60 + g("minute") - (9 * 60 + 30);
-}
-
-// A provisional verdict on the live price: the same three checks as the close, with the volume so far projected to a full day.
-// stock supplies avgVolume20 and ma50. Returns null when there is not enough to judge.
-export function liveVerdict(live, stock, cfg) {
-  if (!live || !stock || !cfg) return null;
-  const share = live.fetchedAt ? volumeShare(etMinutesSinceOpen(live.fetchedAt)) : 0;
-  const projected = share >= 0.05 && live.volume != null ? live.volume / share : null;
-  const e = evaluate({ close: live.price, volume: projected, avgVolume20: stock.avgVolume20, ma50: stock.ma50 }, cfg);
-  const pace = e.ratio == null ? "volume pace unknown" : "volume pace about " + e.ratio.toFixed(1) + "x the average (needs " + (cfg.volumeMultiple || 1.5) + "x)";
-  return { state: e.state, head: e.head, pill: e.pill, ratio: e.ratio, pace };
-}
-
-// items: [{ticker, live, status}]. Returns null when nothing should be sent.
+// items: [{ticker, live, ft}]. Returns null when nothing should be sent.
 export function summarizeMorning(items, digest) {
-  const flagged = items.filter((i) => i.status.flagged);
+  const flagged = items.filter((i) => i.ft.flagged);
   if (!flagged.length && !digest) return null;
-  const line = (i) => i.ticker + " " + fmtPrice(i.live.price) + " (" + (i.status.chg >= 0 ? "+" : "-") + pctStr(i.status.chg) + " today): " + (i.status.reasons.join(", ") || "between your lines") + "." + (i.status.verdict ? " Provisional: " + i.status.verdict.head.toLowerCase() + " (" + i.status.verdict.pace + ")." : "");
-  const ordered = flagged.concat(items.filter((i) => !i.status.flagged));
-  const title = flagged.length ? "Close Check - morning: " + flagged.length + " of " + items.length + " need a look" : "Close Check - morning update";
-  return { title, body: ordered.map(line).join("\n") + "\nPrices are intraday. Only the close counts." };
+  const line = (i) => i.ticker + " " + fmtPrice(i.live.price) + " (" + (i.ft.gap >= 0 ? "+" : "-") + pctStr(i.ft.gap) + " vs yesterday's close). Yesterday: " + i.ft.yesterday.toLowerCase() + ". This morning: " + i.ft.text + ".";
+  const ordered = flagged.concat(items.filter((i) => !i.ft.flagged));
+  const title = flagged.length ? "Close Check - morning follow-through: " + flagged.length + " of " + items.length + " to review" : "Close Check - morning follow-through";
+  return { title, body: ordered.map(line).join("\n") + "\nA 10 AM read, not advice. Only the close counts." };
 }

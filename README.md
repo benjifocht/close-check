@@ -24,7 +24,7 @@ day's close, works out the three signals (close vs your level, volume vs the 20-
 
 - Add up to 12 stocks in the page's Watchlist section. A new stock gets starting levels from the risk preset you pick
   (Cautious, Balanced or Aggressive) after its first after-close check. Change any number and Save to set your own.
-- Two notifications a day, each covering the whole list: a morning update at 10:00 AM ET (live prices) and the close
+- Two notifications a day, each covering the whole list: a morning follow-through at 10:00 AM ET (is the price holding what yesterday's close signaled?) and the close
   check at about 4:02 PM ET. With the summary on, each lists every stock; with it off, each is sent only when
   something needs a look.
 - Why 4:02 and not 4:00: the closing price and volume need a minute or two to be published. The checker keeps trying
@@ -45,7 +45,7 @@ Use the page's fields and presets, then tap **Save**.
 
 ## Live price and refresh
 
-- The 10 AM update saves a "Today so far" snapshot and adds a provisional verdict: the same three checks on the live price, with volume so far projected to a full day. It costs 1 data credit per stock and never changes the official close verdict.
+- The 10 AM follow-through saves a "Today so far" snapshot and compares it with yesterday's close verdict: holding, fading, gapped up a lot, or failed (back across your line). It costs 1 data credit per stock and never changes the official close verdict. It is never sent before 10:00 or after 11:00 AM ET.
   The verdict always uses the last full close.
 - **Refresh** reloads everything straight from the repository. With a token that has Actions access, it also starts a
   check (live prices during market hours, the close after 4:05 PM ET), waits for it, and shows the result. That costs

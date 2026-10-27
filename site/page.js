@@ -1,4 +1,4 @@
-import { normalizeConfig, normalizeData, effectiveCfg, MAX_WATCH, evaluate, liveVerdict, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, preset, rollingRatios, countHeavy, levelChips, supportChips } from "./logic.js";
+import { normalizeConfig, normalizeData, effectiveCfg, MAX_WATCH, evaluate, followThrough, streaks, fmtPrice, fmtVol, fmtDate, pctStr, niceTicks, RISK, preset, rollingRatios, countHeavy, levelChips, supportChips } from "./logic.js";
 
   var $ = function (id) { return document.getElementById(id); };
   var conf = null, work = null, data = { stocks: {}, updatedAt: null }, sel = null;
@@ -54,9 +54,9 @@ import { normalizeConfig, normalizeData, effectiveCfg, MAX_WATCH, evaluate, live
     $("live-main").textContent = "$" + fmtPrice(lv.price) + "  " + (chg >= 0 ? "▲ " : "▼ ") + pctStr(chg) + " vs yesterday";
     var where = cfg.keyLevel > 0 && lv.price > cfg.keyLevel ? "above your level" : lv.price < cfg.supportLevel ? "below your support" : "between your lines";
     var when = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(lv.fetchedAt));
-    var lvd = liveVerdict(lv, rd, cfg);
-    var prov = lvd ? "Provisional verdict: " + lvd.head + " (" + lvd.pace + "). " : "";
-    $("live-sub").textContent = prov + "Price right now is " + where + ", but only the close counts. Volume so far " + fmtVol(lv.volume) + " (day not finished). As of " + when + " ET. Press Refresh to reload the newest snapshot.";
+    var ft = rd && rd.asOf < lv.date ? followThrough(lv, rd, cfg) : null;
+    var prov = ft ? "Follow-through on yesterday's close (" + ft.yesterday.toLowerCase() + "): " + ft.text + ". " : "";
+    $("live-sub").textContent = prov + "Price right now is " + where + ", but only the close counts. As of " + when + " ET. Press Refresh to reload the newest snapshot.";
   }
 
   /* ---------- Watchlist state ---------- */

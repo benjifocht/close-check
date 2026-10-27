@@ -3,18 +3,19 @@
 // MODE=normal      record each stock's close if it is new, send one notification for the whole watchlist
 // MODE=check_data  fetch and print the latest rows only (use this to test your data key)
 // MODE=test_push   send a test notification only
-// MODE=morning     the 10 AM update: saves a "today so far" snapshot and sends one morning notification (once a day)
+// MODE=morning     the 10 AM follow-through: compares the live price with yesterday's close verdict, sends one notification (once a day)
 // MODE=live        the same snapshot with no notification, run by hand any time the market is open
 //                  Snapshots only show "today so far" on the page. They never change the verdict.
 // MODE=refresh     what the page's Refresh button asks for: live during market hours, normal after the close, nothing otherwise
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { alertFor, autoLevels, buildReading, effectiveCfg, evaluate, fmtPrice, morningStatus, normalizeConfig, normalizeData, summarize, summarizeMorning } from "../site/logic.js";
+import { alertFor, autoLevels, buildReading, effectiveCfg, evaluate, fmtPrice, followThrough, normalizeConfig, normalizeData, summarize, summarizeMorning } from "../site/logic.js";
 import { fetchDaily } from "./providers.js";
 
 const OPEN = 9 * 60 + 35, CLOSE = 16 * 60 + 5; // live snapshots are taken between these
 const RECORD_AT = 16 * 60 + 2; // the close is recorded from 4:02 PM ET, once the closing numbers are published
+const MORNING_EARLIEST = 9 * 60 + 58; // not sent before 10 AM ET
 const MORNING_LATEST = 11 * 60; // a morning update later than this is not sent
 const FREE_PLAN_PER_MINUTE = 8; // Twelve Data's free plan allows 8 requests a minute
 
@@ -97,6 +98,7 @@ export async function run({ now = new Date(), env = process.env, fetchImpl = fet
 
   if (mode === "live" || mode === "morning") {
     if (etWeekend(now) || et.minutes < OPEN || et.minutes >= CLOSE) return skip("the market is not open");
+    if (mode === "morning" && et.minutes < MORNING_EARLIEST) return skip("it is too early for the morning follow-through");
     if (mode === "morning" && et.minutes > MORNING_LATEST) return skip("it is too late for a morning update");
     if (mode === "morning" && data.notified.morning === et.date) return skip("today's morning update is already sent");
     const targets = cfg.watchlist.filter((w) => data.stocks[w.ticker]);
@@ -114,7 +116,8 @@ export async function run({ now = new Date(), env = process.env, fetchImpl = fet
         log(w.ticker + " live " + fmtPrice(live.price) + " vs previous close " + fmtPrice(live.prevClose) + ".");
         changed = true;
         const c = effectiveCfg(w, data.stocks[w.ticker]);
-        if (c) items.push({ ticker: w.ticker, live, status: morningStatus(live, c, data.stocks[w.ticker]) });
+        const prev = data.stocks[w.ticker];
+        if (c && prev.asOf < live.date) items.push({ ticker: w.ticker, live, ft: followThrough(live, prev, c) });
       } catch (e) { errors.push(w.ticker + ": " + e.message); log(w.ticker + " failed: " + e.message); }
     }
     if (!changed) return { changed: false, alerted: false, reason: "no live data", errors };

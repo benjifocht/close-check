@@ -233,9 +233,10 @@ test("morning mode: one 10 AM notification a day, saved snapshot, no repeats, no
   const r = await at("2026-10-05T14:00:20Z");
   assert.equal(r.changed, true);
   assert.equal(h.pushes.length, 1);
-  assert.equal(h.pushes[0].headers.Title, "Close Check - morning: 1 of 1 need a look");
-  assert.match(h.pushes[0].body, /ETSY 78\.50 \(\+9\.0% today\): trading above your 77\.70 level\./);
+  assert.equal(h.pushes[0].headers.Title, "Close Check - morning follow-through: 1 of 1 to review");
+  assert.match(h.pushes[0].body, /ETSY 78\.50 \(\+9\.0% vs yesterday's close\)\. Yesterday: .*This morning: /);
   assert.match(h.pushes[0].body, /Only the close counts/);
+  assert.equal((await at("2026-10-05T13:50:00Z")).reason, "it is too early for the morning follow-through");
   const saved = JSON.parse(fs.readFileSync(path.join(h.dir, "data.json"), "utf8"));
   assert.equal(saved.notified.morning, "2026-10-05");
   assert.equal(saved.stocks.ETSY.live.price, 78.5);
@@ -255,7 +256,7 @@ test("morning mode: quiet mornings follow the daily-summary setting, and a slot 
     const r = await run({ mode: "morning", now: new Date("2026-10-06T14:00:30Z"), env: h.env, fetchImpl: h.fetchImpl, dir: h.dir, log: h.log, sleep: h.sleep });
     assert.equal(r.changed, true);
     assert.equal(h.pushes.length, digest ? 1 : 0);
-    if (digest) { assert.equal(h.pushes[0].headers.Title, "Close Check - morning update"); assert.match(h.pushes[0].body, /AAA 50\.00 \(\+0\.0% today\): between your lines\./); }
+    if (digest) { assert.equal(h.pushes[0].headers.Title, "Close Check - morning follow-through"); assert.match(h.pushes[0].body, /AAA 50\.00 \(\+0\.0% vs yesterday's close\)\. Yesterday: no signal yet\. This morning: no setup/); }
     const late = await run({ mode: "morning", now: new Date("2026-10-07T16:30:00Z"), env: h.env, fetchImpl: h.fetchImpl, dir: h.dir, log: h.log, sleep: h.sleep });
     assert.equal(late.reason, "it is too late for a morning update");
   }
@@ -400,16 +401,21 @@ test("close check: records from 4:02 PM, and a scheduled run keeps trying until 
   assert.deepEqual(sleeps, []);
 });
 
-test("liveVerdict: provisional verdict projects volume so far to a full day", async () => {
-  const { liveVerdict, volumeShare } = await import("../site/logic.js");
-  assert.ok(Math.abs(volumeShare(30) - 0.17) < 1e-9);
+test("followThrough: reads the morning against yesterday's close verdict", async () => {
+  const { followThrough } = await import("../site/logic.js");
   const cfg = { keyLevel: 100, supportLevel: 90, volumeMultiple: 1.5 };
-  const stock = { avgVolume20: 1000, ma50: 95 };
-  // 10:00 AM ET = 14:00Z in October. 300 shares by 10:00 projects to ~1765, 1.8x.
-  const up = liveVerdict({ price: 101, volume: 300, fetchedAt: "2026-10-26T14:00:30Z" }, stock, cfg);
-  assert.equal(up.state, "confirm-up");
-  const slow = liveVerdict({ price: 101, volume: 100, fetchedAt: "2026-10-26T14:00:30Z" }, stock, cfg);
-  assert.equal(slow.state, "partial-up");
-  assert.match(slow.pace, /needs 1\.5x/);
-  assert.equal(liveVerdict(null, stock, cfg), null);
+  const up = { close: 101, volume: 2000, avgVolume20: 1000, ma50: 95 };
+  const L = (price, prevClose) => ({ price, prevClose });
+  assert.equal(followThrough(L(102, 101), up, cfg).kind, "holding");
+  assert.equal(followThrough(L(99, 101), up, cfg).kind, "failed");
+  assert.equal(followThrough(L(99.9, 101.5), up, cfg).kind, "failed");
+  assert.equal(followThrough(L(100.2, 101.5), up, cfg).kind, "fading");
+  assert.equal(followThrough(L(105, 101), up, cfg).kind, "extended");
+  const down = { close: 88, volume: 2000, avgVolume20: 1000, ma50: 95 };
+  assert.equal(followThrough(L(87, 88), down, cfg).kind, "holding");
+  assert.equal(followThrough(L(91, 88), down, cfg).kind, "failed");
+  assert.equal(followThrough(L(89.2, 88), down, cfg).kind, "bouncing");
+  const mid = { close: 95, volume: 900, avgVolume20: 1000, ma50: 95 };
+  assert.equal(followThrough(L(95, 95), mid, cfg).flagged, false);
+  assert.equal(followThrough(L(101, 95), mid, cfg).kind, "crossed");
 });
