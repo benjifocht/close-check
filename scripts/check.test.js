@@ -419,3 +419,17 @@ test("followThrough: reads the morning against yesterday's close verdict", async
   assert.equal(followThrough(L(95, 95), mid, cfg).flagged, false);
   assert.equal(followThrough(L(101, 95), mid, cfg).kind, "crossed");
 });
+
+test("notifications start each stock with a traffic-light dot", async () => {
+  const { dotFor, dotForFollow, summarizeMorning } = await import("../site/logic.js");
+  assert.equal(dotFor("confirm-up"), "🟢");
+  assert.equal(dotFor("confirm-down"), "🔴");
+  assert.equal(dotFor("partial-up"), "🟡");
+  assert.equal(dotFor("wait"), "⚪");
+  assert.equal(dotForFollow({ kind: "holding", side: "up" }), "🟢");
+  assert.equal(dotForFollow({ kind: "failed", side: "up" }), "🔴");
+  assert.equal(dotForFollow({ kind: "fading", side: "up" }), "🟡");
+  const msg = summarizeMorning([{ ticker: "AAA", live: { price: 101 }, ft: { kind: "holding", side: "up", flagged: true, gap: 1, yesterday: "Bullish confirmation", text: "holding" } }], true);
+  assert.match(msg.body, /^🟢 AAA /);
+  assert.match(msg.title, /^[\x20-\x7e]+$/);
+});

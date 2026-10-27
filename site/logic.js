@@ -263,11 +263,22 @@ export function effectiveCfg(entry, stock) {
   return null;
 }
 
+// Traffic-light dots for a quick read in notifications.
+export function dotFor(state) {
+  return state === "confirm-up" ? "\u{1F7E2}" : state === "confirm-down" ? "\u{1F534}" : state === "wait" ? "\u26AA" : "\u{1F7E1}";
+}
+export function dotForFollow(ft) {
+  if (ft.kind === "holding") return ft.side === "up" ? "\u{1F7E2}" : "\u{1F534}";
+  if (ft.kind === "failed" && ft.side === "up") return "\u{1F534}";
+  if (ft.kind === "none") return "\u26AA";
+  return "\u{1F7E1}";
+}
+
 // One push for the whole watchlist. items: [{ticker, next, cfg, decision}]. Returns null when nothing should be sent.
 export function summarize(items, digest) {
   const flagged = items.filter((i) => i.decision.alert);
   if (!flagged.length && !digest) return null;
-  const line = (i) => (i.decision.alert
+  const line = (i) => dotFor(i.decision.state) + " " + (i.decision.alert
     ? i.decision.body
     : i.ticker + " closed at " + fmtPrice(i.next.close) + ". " + evaluate(i.next, i.cfg).head + ".");
   const ordered = flagged.concat(items.filter((i) => !i.decision.alert));
@@ -307,7 +318,7 @@ export function followThrough(live, prev, cfg) {
 export function summarizeMorning(items, digest) {
   const flagged = items.filter((i) => i.ft.flagged);
   if (!flagged.length && !digest) return null;
-  const line = (i) => i.ticker + " " + fmtPrice(i.live.price) + " (" + (i.ft.gap >= 0 ? "+" : "-") + pctStr(i.ft.gap) + " vs yesterday's close). Yesterday: " + i.ft.yesterday.toLowerCase() + ". This morning: " + i.ft.text + ".";
+  const line = (i) => dotForFollow(i.ft) + " " + i.ticker + " " + fmtPrice(i.live.price) + " (" + (i.ft.gap >= 0 ? "+" : "-") + pctStr(i.ft.gap) + " vs yesterday's close). Yesterday: " + i.ft.yesterday.toLowerCase() + ". This morning: " + i.ft.text + ".";
   const ordered = flagged.concat(items.filter((i) => !i.ft.flagged));
   const title = flagged.length ? "Close Check - morning follow-through: " + flagged.length + " of " + items.length + " to review" : "Close Check - morning follow-through";
   return { title, body: ordered.map(line).join("\n") + "\nA 10 AM read, not advice. Only the close counts." };
