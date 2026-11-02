@@ -1,6 +1,6 @@
 {
  "version": 2,
- "updatedAt": "2026-10-30T20:12:41.540Z",
+ "updatedAt": "2026-11-02T15:00:22.677Z",
  "stocks": {
   "AAPL": {
    "ticker": "AAPL",
@@ -312,10 +312,18 @@
      "close": 344.77,
      "volume": 1964467
     }
-   ]
+   ],
+   "live": {
+    "date": "2026-11-02",
+    "price": 339.825,
+    "volume": 318536,
+    "prevClose": 344.63,
+    "fetchedAt": "2026-11-02T15:00:22.677Z"
+   }
   }
  },
+ "seeded": false,
  "notified": {
-  "morning": "2026-10-30"
+  "morning": "2026-11-02"
  }
 }
