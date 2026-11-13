@@ -1,7 +1,16 @@
 {
-  "ticker": "AAPL",
-  "keyLevel": 340.08,
-  "supportLevel": 309.35,
-  "volumeMultiple": 1.25,
-  "risk": "aggressive"
+  "digest": true,
+  "watchlist": [
+    {
+      "ticker": "AAPL",
+      "keyLevel": 340.08,
+      "supportLevel": 309.35,
+      "volumeMultiple": 1.25,
+      "risk": "aggressive"
+    },
+    {
+      "ticker": "NVDA",
+      "risk": "balanced"
+    }
+  ]
 }
